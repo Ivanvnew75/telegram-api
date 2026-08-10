@@ -13,6 +13,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
+	"github.com/Ivanvnew75/libs/common"
+
 	"github.com/Ivanvnew75/telegram-api/telegram"
 	"github.com/Ivanvnew75/telegram-api/usersclient"
 )
@@ -31,6 +33,12 @@ func (s *Server) Echo() *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
+	// Тот же набор и тот же порядок middleware, что в остальных сервисах:
+	// формат лога обязан совпадать, иначе искать по всем сервисам сразу
+	// не получится.
+	e.Use(common.RequestID())
+	e.Use(common.PropagateRequestID())
+	e.Use(common.RequestLogger(s.log))
 	e.Use(middleware.Recover())
 
 	e.GET("/health", s.health)

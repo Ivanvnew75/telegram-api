@@ -4,9 +4,12 @@ package bot
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/Ivanvnew75/libs/common"
 
 	"github.com/Ivanvnew75/telegram-api/telegram"
 	"github.com/Ivanvnew75/telegram-api/usersclient"
@@ -127,7 +130,23 @@ func (p *Poller) handle(ctx context.Context, u telegram.Update) {
 	msg := u.Message
 	text := strings.TrimSpace(msg.Text)
 
+	// Сквозной идентификатор для входящего сообщения (Фактор 11).
+	//
+	// У сообщения из Telegram нет ни HTTP-запроса, ни заголовка, поэтому
+	// идентификатор мы создаём сами — из update_id, который у Telegram
+	// уникален и монотонен. Дальше он уходит в context, оттуда — в заголовок
+	// исходящих вызовов к users, и весь путь «сообщение → регистрация →
+	// сохранение ответа» ищется в логах ОДНИМ фильтром по request_id,
+	// в двух разных сервисах.
+	//
+	// Детерминированность (не случайный UUID) даёт побочную пользу:
+	// повторная обработка того же апдейта получит тот же идентификатор,
+	// и в логах будет видно, что это ретрай, а не новое событие.
+	requestID := fmt.Sprintf("tg-%d", u.UpdateID)
+	ctx = common.WithRequestID(ctx, requestID)
+
 	log := p.log.With(
+		slog.String("request_id", requestID),
 		slog.Int64("telegram_id", msg.From.ID),
 		slog.Int64("update_id", u.UpdateID),
 	)
