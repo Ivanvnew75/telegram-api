@@ -1,0 +1,33 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: telegram-api-config
+  namespace: moodbot
+  labels:
+    app.kubernetes.io/name: telegram-api
+    app.kubernetes.io/part-of: moodbot
+data:
+  SERVER_PORT: "8080"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+
+  # Адрес соседнего сервиса — переменной окружения, а не константой в коде.
+  #
+  # Полное DNS-имя (с .svc.cluster.local), а не короткое `users`. Короткое
+  # работает за счёт search-доменов в /etc/resolv.conf, но каждый запрос
+  # при этом делает несколько неудачных DNS-резолвов подряд (ndots:5).
+  # На нагруженном сервисе это заметная лишняя работа для CoreDNS.
+  USERS_SERVICE_URL: "http://users.moodbot.svc.cluster.local"
+
+  # Адрес самого Telegram. Вынесен в конфиг, потому что внешний API —
+  # такой же backing service (Фактор 4): в тестовом окружении сюда
+  # подставляется заглушка.
+  TELEGRAM_API_URL: "https://api.telegram.org"
+
+  MOOD_QUESTION: "Как вы себя чувствуете?"
+
+  POLL_TIMEOUT: "25s"
+  HTTP_TIMEOUT: "5s"
+  HTTP_RETRIES: "2"
+  SHUTDOWN_TIMEOUT: "15s"

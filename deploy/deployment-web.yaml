@@ -1,0 +1,111 @@
+---
+# Тип процесса «web»: принимает POST /send от scheduler'а.
+#
+# Фактор 8 (Concurrency) в исходной формулировке — «scale out via the
+# process model»: приложение делится на типы процессов, каждый из которых
+# масштабируется независимо. У Heroku это Procfile (`web:`, `worker:`),
+# в Kubernetes — разные Deployment'ы из ОДНОГО образа, отличающиеся
+# конфигурацией.
+#
+# Здесь: POLLING_ENABLED=false, реплик сколько угодно.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telegram-api-web
+  namespace: moodbot
+  labels:
+    app.kubernetes.io/name: telegram-api
+    app.kubernetes.io/component: web
+    app.kubernetes.io/part-of: moodbot
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: telegram-api
+      app.kubernetes.io/component: web
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: telegram-api
+        app.kubernetes.io/component: web
+        app.kubernetes.io/part-of: moodbot
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: telegram-api
+          image: ghcr.io/ivanvnew75/telegram-api:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: telegram-api-config
+          env:
+            - name: POLLING_ENABLED
+              value: "false"
+            - name: TELEGRAM_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: telegram-credentials
+                  key: token
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 10
+            # timeout больше обычного: проба ходит в api.telegram.org
+            # через интернет, и 1 секунды дефолта тут не хватает.
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: telegram-api
+  namespace: moodbot
+  labels:
+    app.kubernetes.io/name: telegram-api
+    app.kubernetes.io/part-of: moodbot
+spec:
+  type: ClusterIP
+  # Селектор указывает ТОЛЬКО на web-поды.
+  #
+  # Если убрать component: web, в балансировку попадёт и опросчик —
+  # запросы от scheduler'а начнут случайно попадать на процесс, который
+  # для этого не предназначен. Разные типы процессов — разные селекторы.
+  selector:
+    app.kubernetes.io/name: telegram-api
+    app.kubernetes.io/component: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
