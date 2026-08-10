@@ -36,10 +36,13 @@ func (s *Server) Echo() *echo.Echo {
 	// Тот же набор и тот же порядок middleware, что в остальных сервисах:
 	// формат лога обязан совпадать, иначе искать по всем сервисам сразу
 	// не получится.
+	m := common.NewMetrics("telegram-api")
 	e.Use(common.RequestID())
 	e.Use(common.PropagateRequestID())
+	e.Use(m.Middleware())
 	e.Use(common.RequestLogger(s.log))
 	e.Use(middleware.Recover())
+	m.Register(e)
 
 	e.GET("/health", s.health)
 	e.GET("/ready", s.ready)
