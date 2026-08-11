@@ -11,6 +11,7 @@ import (
 
 	"github.com/Ivanvnew75/libs/common"
 
+	"github.com/Ivanvnew75/telegram-api/sink"
 	"github.com/Ivanvnew75/telegram-api/telegram"
 	"github.com/Ivanvnew75/telegram-api/usersclient"
 )
@@ -44,8 +45,12 @@ import (
 // Deployment'ами из одного и того же образа, а не replicas: 3 на всё.
 // ─────────────────────────────────────────────────────────────────────
 type Poller struct {
-	tg       *telegram.Client
-	users    *usersclient.Client
+	tg    *telegram.Client
+	users *usersclient.Client
+	// sink — куда уходит ответ пользователя. Абстракция нужна, чтобы
+	// переключение «users → Kafka» было изменением КОНФИГУРАЦИИ,
+	// а не выкаткой кода. Подробности — в пакете sink.
+	sink     sink.Sink
 	log      *slog.Logger
 	question string
 
@@ -59,8 +64,9 @@ type Poller struct {
 	offset int64
 }
 
-func New(tg *telegram.Client, users *usersclient.Client, log *slog.Logger, question string) *Poller {
-	return &Poller{tg: tg, users: users, log: log, question: question}
+func New(tg *telegram.Client, users *usersclient.Client, snk sink.Sink,
+	log *slog.Logger, question string) *Poller {
+	return &Poller{tg: tg, users: users, sink: snk, log: log, question: question}
 }
 
 // Run крутит цикл опроса, пока не отменят контекст.
@@ -198,13 +204,33 @@ func (p *Poller) handle(ctx context.Context, u telegram.Update) {
 			return
 		}
 
-		if err := p.users.SaveAnswer(ctx, user.ID, p.question, text); err != nil {
+		// Событие уезжает в настроенный приёмник: либо синхронно в users
+		// (прежнее поведение), либо в Kafka. Что именно — решает
+		// переменная ANSWER_SINK, см. пакет sink.
+		//
+		// EventID детерминированный (tg-<update_id>): повторная доставка
+		// того же апдейта Telegram даст то же событие, и потребитель
+		// отбросит его по уникальному ключу вместо создания дубля.
+		ev := sink.NewEvent(
+			requestID, requestID,
+			user.ID, msg.From.ID,
+			p.question, text,
+			time.Unix(msg.Date, 0),
+		)
+		if err := p.sink.Save(ctx, ev); err != nil {
 			log.Error("save answer failed", slog.String("error", err.Error()))
 			p.reply(ctx, msg.Chat.ID, "Не получилось сохранить ответ.")
 			return
 		}
-		log.Info("answer saved", slog.Int64("user_id", user.ID))
-		p.reply(ctx, msg.Chat.ID, "Записал, спасибо!")
+		log.Info("answer accepted", slog.Int64("user_id", user.ID))
+
+		// Формулировка ответа человеку изменилась не случайно.
+		// При ANSWER_SINK=kafka мы больше НЕ ЗНАЕМ, что ответ сохранён:
+		// мы знаем только, что событие принято брокером. Обещать
+		// пользователю «записал» — врать про гарантию, которой нет.
+		// Это цена асинхронности, и её надо признавать в интерфейсе,
+		// а не прятать.
+		p.reply(ctx, msg.Chat.ID, "Принял, спасибо!")
 	}
 }
 

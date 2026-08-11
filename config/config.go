@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Ivanvnew75/libs/common"
@@ -34,6 +36,21 @@ type Config struct {
 
 	Question string
 
+	// AnswerSink — куда уходит ответ пользователя: "users" (синхронный
+	// вызов сервиса users, прежнее поведение) или "kafka".
+	//
+	// Значение по умолчанию — "users", то есть СТАРОЕ поведение.
+	// Это принципиально: выкатка нового образа не должна менять поведение
+	// сама по себе. Новый путь включается отдельным действием — правкой
+	// ConfigMap, которую легко откатить, не пересобирая образ.
+	AnswerSink string
+
+	// KafkaBrokers обязателен только при AnswerSink=kafka.
+	// Проверка условная (см. Load) — требовать адрес брокера от сервиса,
+	// который в Kafka не пишет, значило бы заставить всех, кто ещё
+	// не переехал, придумывать фиктивное значение.
+	KafkaBrokers []string
+
 	LogLevel        string
 	LogFormat       string
 	ShutdownTimeout time.Duration
@@ -49,6 +66,7 @@ func Load(version string) (Config, error) {
 		TelegramAPIURL: common.Env("TELEGRAM_API_URL", "https://api.telegram.org"),
 		PollingEnabled: common.Env("POLLING_ENABLED", "false") == "true",
 		Question:       common.Env("MOOD_QUESTION", "Как вы себя чувствуете?"),
+		AnswerSink:     common.Env("ANSWER_SINK", "users"),
 		LogLevel:       common.Env("LOG_LEVEL", "info"),
 		LogFormat:      common.Env("LOG_FORMAT", "json"),
 	}
@@ -75,5 +93,24 @@ func Load(version string) (Config, error) {
 	if c.HTTPRetries, err = common.EnvInt("HTTP_RETRIES", 2); err != nil {
 		return c, err
 	}
+
+	switch c.AnswerSink {
+	case "users":
+		// адрес брокера не нужен
+	case "kafka":
+		brokers, err := common.MustEnv("KAFKA_BROKERS")
+		if err != nil {
+			return c, err
+		}
+		c.KafkaBrokers = strings.Split(brokers, ",")
+	default:
+		// Явный список допустимых значений вместо «что не kafka, то users».
+		// Опечатка ANSWER_SINK=kafla должна ронять под на старте,
+		// а не тихо оставлять старое поведение: молчаливый откат
+		// к прежнему пути — самый неприятный вид отказа, потому что
+		// его никто не замечает.
+		return c, fmt.Errorf("ANSWER_SINK: недопустимое значение %q, ожидается users или kafka", c.AnswerSink)
+	}
+
 	return c, nil
 }

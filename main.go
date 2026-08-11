@@ -12,6 +12,7 @@ import (
 	"github.com/Ivanvnew75/telegram-api/api"
 	"github.com/Ivanvnew75/telegram-api/bot"
 	"github.com/Ivanvnew75/telegram-api/config"
+	"github.com/Ivanvnew75/telegram-api/sink"
 	"github.com/Ivanvnew75/telegram-api/telegram"
 	"github.com/Ivanvnew75/telegram-api/usersclient"
 )
@@ -38,6 +39,19 @@ func main() {
 	tg := telegram.New(cfg.TelegramAPIURL, cfg.TelegramToken, cfg.PollTimeout)
 	users := usersclient.New(cfg.UsersServiceURL, cfg.HTTPTimeout, cfg.HTTPRetries)
 
+	// Приёмник ответов выбирается конфигурацией, а не сборкой.
+	// Разбор — в пакете sink; коротко: это позволяет откатить переход
+	// на Kafka правкой ConfigMap, без выкатки образа.
+	var answerSink sink.Sink
+	switch cfg.AnswerSink {
+	case "kafka":
+		answerSink = sink.NewKafka(cfg.KafkaBrokers, logger)
+	default:
+		answerSink = sink.NewUsers(users)
+	}
+	defer answerSink.Close()
+	logger.Info("answer sink", slog.String("kind", cfg.AnswerSink))
+
 	// Контекст, который отменится по SIGTERM.
 	ctx, stop := common.SignalContext()
 	defer stop()
@@ -51,7 +65,7 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			bot.New(tg, users, logger, cfg.Question).Run(ctx, cfg.PollTimeout)
+			bot.New(tg, users, answerSink, logger, cfg.Question).Run(ctx, cfg.PollTimeout)
 		}()
 	}
 
