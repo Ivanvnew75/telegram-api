@@ -3,7 +3,7 @@ module github.com/Ivanvnew75/telegram-api
 go 1.26.5
 
 require (
-	github.com/Ivanvnew75/libs v0.5.0
+	github.com/Ivanvnew75/libs v0.6.0
 	github.com/labstack/echo/v4 v4.15.4
 	github.com/segmentio/kafka-go v0.4.51
 )

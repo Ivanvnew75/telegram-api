@@ -65,7 +65,8 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			bot.New(tg, users, answerSink, logger, cfg.Question).Run(ctx, cfg.PollTimeout)
+			bot.New(tg, users, answerSink, logger, cfg.Question,
+				cfg.LinkSecret, cfg.WebAdminURL).Run(ctx, cfg.PollTimeout)
 		}()
 	}
 

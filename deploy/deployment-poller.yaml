@@ -66,7 +66,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: telegram-api
-          image: ghcr.io/ivanvnew75/telegram-api:0.1.0
+          image: ghcr.io/ivanvnew75/telegram-api:0.3.1
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -77,6 +77,15 @@ spec:
           env:
             # Единственное отличие от web-процесса. Один образ,
             # разное поведение — через конфигурацию (Фактор 3).
+            # Общий с web-admin ключ подписи ссылок входа.
+            # Только у ОПРОСЧИКА: команду /kabinet обрабатывает он,
+            # web-процессу этот секрет не нужен, и выдавать его туда
+            # значило бы расширить область компрометации без пользы.
+            - name: LINK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: moodbot-link
+                  key: link-secret
             - name: POLLING_ENABLED
               value: "true"
             - name: TELEGRAM_TOKEN

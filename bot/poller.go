@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Ivanvnew75/libs/authlink"
 	"github.com/Ivanvnew75/libs/common"
 
 	"github.com/Ivanvnew75/telegram-api/sink"
@@ -54,6 +55,10 @@ type Poller struct {
 	log      *slog.Logger
 	question string
 
+	// linkSecret пустой — команда /kabinet отключена.
+	linkSecret  []byte
+	webAdminURL string
+
 	// offset хранится в памяти процесса.
 	//
 	// Это осознанный компромисс, а не нарушение Фактора 6 (Processes).
@@ -65,8 +70,11 @@ type Poller struct {
 }
 
 func New(tg *telegram.Client, users *usersclient.Client, snk sink.Sink,
-	log *slog.Logger, question string) *Poller {
-	return &Poller{tg: tg, users: users, sink: snk, log: log, question: question}
+	log *slog.Logger, question string, linkSecret, webAdminURL string) *Poller {
+	return &Poller{
+		tg: tg, users: users, sink: snk, log: log, question: question,
+		linkSecret: []byte(linkSecret), webAdminURL: webAdminURL,
+	}
 }
 
 // Run крутит цикл опроса, пока не отменят контекст.
@@ -183,9 +191,40 @@ func (p *Poller) handle(ctx context.Context, u telegram.Update) {
 			"Привет, "+user.Name+"! Я буду спрашивать, как ты себя чувствуешь, дважды в день. "+
 				"Просто отвечай текстом — я сохраню.")
 
+	case strings.HasPrefix(text, "/kabinet"):
+		if len(p.linkSecret) == 0 {
+			p.reply(ctx, msg.Chat.ID, "Веб-кабинет пока не настроен.")
+			return
+		}
+		user, err := p.users.GetByTelegramID(ctx, msg.From.ID)
+		if errors.Is(err, usersclient.ErrNotFound) {
+			p.reply(ctx, msg.Chat.ID, "Сначала отправьте /start")
+			return
+		}
+		if err != nil {
+			log.Error("lookup failed", slog.String("error", err.Error()))
+			p.reply(ctx, msg.Chat.ID, "Сервис пользователей недоступен, попробуйте позже.")
+			return
+		}
+
+		// 10 минут жизни ссылки.
+		//
+		// Ссылка — это bearer-токен: кто ею владеет, тот и вошёл.
+		// Она проходит через серверы Telegram, оседает в истории чата
+		// и может попасть в скриншот. Короткий срок не устраняет риск,
+		// но сокращает окно с «навсегда» до «десять минут».
+		// Сессия после входа живёт неделю — это уже кука с HttpOnly,
+		// у неё другая модель угроз.
+		token := authlink.Sign(p.linkSecret, authlink.PurposeLogin, user.ID, 10*time.Minute)
+		link := strings.TrimRight(p.webAdminURL, "/") + "/login?token=" + token
+
+		log.Info("выдана ссылка на кабинет", slog.Int64("user_id", user.ID))
+		p.reply(ctx, msg.Chat.ID,
+			"Ваш кабинет (ссылка действует 10 минут, никому её не пересылайте):\n"+link)
+
 	case text == "/help":
 		p.reply(ctx, msg.Chat.ID,
-			"/start — зарегистрироваться\n/help — эта справка\n"+
+			"/start — зарегистрироваться\n/kabinet — ссылка на веб-кабинет\n/help — эта справка\n"+
 				"Любой другой текст я сохраню как ответ на вопрос «"+p.question+"»")
 
 	case text == "":
