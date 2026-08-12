@@ -45,7 +45,7 @@ func main() {
 	var answerSink sink.Sink
 	switch cfg.AnswerSink {
 	case "kafka":
-		answerSink = sink.NewKafka(cfg.KafkaBrokers, logger)
+		answerSink = sink.NewKafka(cfg.KafkaBrokers, cfg.KafkaUser, cfg.KafkaPassword, logger)
 	default:
 		answerSink = sink.NewUsers(users)
 	}

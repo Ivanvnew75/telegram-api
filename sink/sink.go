@@ -42,8 +42,8 @@ type Sink interface {
 type kafkaSink struct{ w *kafka.Writer }
 
 // NewKafka — продюсер в топик answers.v1.
-func NewKafka(brokers []string, log *slog.Logger) Sink {
-	return &kafkaSink{w: kafkax.NewWriter(brokers, events.TopicAnswers, log)}
+func NewKafka(brokers []string, user, pass string, log *slog.Logger) Sink {
+	return &kafkaSink{w: kafkax.NewWriterSASL(brokers, events.TopicAnswers, user, pass, log)}
 }
 
 func (s *kafkaSink) Save(ctx context.Context, e events.AnswerReceived) error {

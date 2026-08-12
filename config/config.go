@@ -62,6 +62,9 @@ type Config struct {
 	// который в Kafka не пишет, значило бы заставить всех, кто ещё
 	// не переехал, придумывать фиктивное значение.
 	KafkaBrokers []string
+	// Учётные данные SASL. Пусто — подключение без аутентификации.
+	KafkaUser     string
+	KafkaPassword string
 
 	LogLevel        string
 	LogFormat       string
@@ -148,6 +151,8 @@ func Load(version string) (Config, error) {
 			return c, err
 		}
 		c.KafkaBrokers = strings.Split(brokers, ",")
+		c.KafkaUser = common.Env("KAFKA_USER", "")
+		c.KafkaPassword = common.Env("KAFKA_PASSWORD", "")
 	default:
 		// Явный список допустимых значений вместо «что не kafka, то users».
 		// Опечатка ANSWER_SINK=kafla должна ронять под на старте,
